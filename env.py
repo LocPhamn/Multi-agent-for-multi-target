@@ -14,7 +14,6 @@ color = ['lightblue', 'pink', 'royalblue', 'pink', 'lightblue', 'lightblue']
 class ENV(tk.Tk, object):
     def __init__(self, agentNum):
         super(ENV, self).__init__()
-        # Khởi tạo danh sách lưu vị trí trước đó của agent để tính vận tốc
         self.prev_positions = np.zeros((agentNum, 2))
         self.agentNum = agentNum
         self.ENV_H = ENV_H
@@ -42,8 +41,9 @@ class ENV(tk.Tk, object):
 
         #new parameters
         self.grid_map = np.zeros((ENV_H, ENV_H),dtype=int)
-        self.agentReward = np.zeros((3),dtype=float)
+        self.new_cell_point =[[] for _ in range(self.agentNum)]
         self.targets = []
+        self.founded_targets = np.zeros(agentNum)
         self._build_env()
 
     def _build_env(self):
@@ -89,7 +89,9 @@ class ENV(tk.Tk, object):
         self.grid_map = np.zeros((ENV_H, ENV_H),dtype=int)
         self.canvas.delete("squares")
         self.canvas.delete("founded_target")
-
+        self.new_cell_point =[[] for _ in range(self.agentNum)]
+        self.founded_targets = np.zeros(self.agentNum)
+        self.historyStep = 1
         sATAA = np.zeros((self.agentNum, 2 * (2 * self.agentNum - 1)))
         agent_coordi = np.zeros((self.agentNum, 2))
         tar_coordi = np.zeros((self.agentNum, 2))
@@ -104,7 +106,7 @@ class ENV(tk.Tk, object):
         self.obsSize = obsSize * UNIT
         for i in range(self.agentNum):
             self.tar_center[i] = self.origin + UNIT * self.tarPositionArray[i]
-            self.targets.append(self.tar_center[i])
+            # self.targets.append(self.tar_center[i])
             self.agent_center[i] = self.origin + UNIT * self.agentPositionArray[i]
             self.target_all[i] = self.canvas.create_rectangle(
                 self.tar_center[i, 0] - self.tarSize, self.tar_center[i, 1] - self.tarSize,
@@ -173,25 +175,12 @@ class ENV(tk.Tk, object):
                 break
         return obstacleExist, obstacleDistance
 
-    def detect_targets(self,grid_matrix,tar_pos,observe_range,unit):
-        tar_row, tar_col = int(tar_pos[1] // unit), int(tar_pos[0] // unit)
-
-        # Nếu ô của target nằm ngoài lưới thì trả về False
-        if tar_row < 0 or tar_row >= grid_matrix.shape[0] or tar_col < 0 or tar_col >= grid_matrix.shape[1]:
-            return 0
-
-        # Kiểm tra giá trị của ô trong grid_map
-        if grid_matrix[tar_row, tar_col] == 1:
-            return 1
-        else:
-            return 0
 
 
     def mark_detection_area(self,grid_matrix, agent_pos, observe_range, unit):
         # Chuyển đổi tọa độ tác nhân sang tọa độ ô lưới
         agent_row, agent_col = int(agent_pos[1] // unit), int(agent_pos[0] // unit)
         new_cells = 0
-        # print(agent_row,agent_col)
 
         # Bán kính phát hiện tính theo số ô lưới
         detection_radius = int(observe_range * UNIT)
@@ -213,20 +202,32 @@ class ENV(tk.Tk, object):
                             grid_matrix[row, col] = 1 # Đánh dấu vùng phát hiện bằng giá trị 1
         return grid_matrix,new_cells
 
-    def remove_target(self, grid_matrix, observe_range, unit):
-        found_targets = []
-        # Duyệt ngược danh sách target để xóa không làm thay đổi chỉ số của các phần tử khác
-        for idx in sorted(range(len(self.targets)), reverse=True):
+    def detect_targets(self,grid_matrix,tar_pos,observe_range,unit):
+        tar_row, tar_col = int(tar_pos[1] // unit), int(tar_pos[0] // unit)
+
+        # Nếu ô của target nằm ngoài lưới thì trả về False
+        if tar_row < 0 or tar_row >= grid_matrix.shape[0] or tar_col < 0 or tar_col >= grid_matrix.shape[1]:
+            return 0
+
+        # Kiểm tra giá trị của ô trong grid_map
+        if grid_matrix[tar_row, tar_col] == 1:
+            return 1
+        else:
+            return 0
+
+    def mark_target(self, grid_matrix, observe_range, unit):
+        check = 0
+        for idx in range(len(self.targets)):
             tar_pos = self.targets[idx]
-            if self.detect_targets(grid_matrix, tar_pos, observe_range, unit):
-                print(f"Đã tìm được target tại tọa độ: {tar_pos}")
+            if self.detect_targets(grid_matrix, tar_pos, observe_range, unit) and self.founded_targets[idx] == 0:
+                print(f"target {idx} đã được tìm thấy tại tọa độ: {tar_pos}")
                 self.canvas.create_rectangle(
                     tar_pos[0] - self.tarSize, tar_pos[1] - self.tarSize,
                     tar_pos[0] + self.tarSize, tar_pos[1] + self.tarSize,
                     fill='pink',tags= "founded_target")
-                found_targets.append(tar_pos)
-                del self.targets[idx]
-        return found_targets,
+                self.founded_targets[idx] = 1
+                check = 1
+        return self.founded_targets, check
 
     def draw_grid(self,grid_matrix,unit):
         for row in range(ENV_H):
@@ -247,6 +248,7 @@ class ENV(tk.Tk, object):
         if agentiDone != action + 1:
             base_actionA += observation[action*2: (action+1)*2]/np.linalg.norm(observation[action*2:(action+1)*2])*self.stepLengthFree
         return base_actionA[0], base_actionA[1]
+
     # def get_agent_positions(self):
     #     for i in range(self.agentNum):
     #         agent_positions = []
@@ -262,12 +264,14 @@ class ENV(tk.Tk, object):
     #             # self.canvas.create_rectangle(center_x, center_y, center_x + UNIT, center_y+UNIT, fill='pink', outline="" ,tags="squares")
     #             self.canvas.tag_lower("squares")
     #         # print(agent_positions)
+
     def move(self, move, agentExistObstacle_Target, otherTarCoordi, action, action_h, drawTrajectory):
         done_collision_cross = np.zeros(self.agentNum)
         done_collision_agent = 0
         done_collision_obs = 0
         success = 0
         arriveSame = 0
+        reward = -1 * np.ones(self.agentNum)/ENV_H
         done = np.zeros(self.agentNum)
         nextDisAA = np.zeros(int(self.agentNum*(self.agentNum-1)/2))
         sATAA = np.zeros((self.agentNum, 2*(2*self.agentNum - 1)))
@@ -275,6 +279,7 @@ class ENV(tk.Tk, object):
         tar_coordi = np.zeros((self.agentNum, 2))
         agentNewPosition = np.zeros((self.agentNum, 2))
         nextAoutOb = 1
+        search_agents = np.zeros(self.agentNum)                                                                         # know who found the target
         if drawTrajectory:
             for i in range(self.agentNum):
                 self.agent_all[i] = self.canvas.create_oval(
@@ -298,31 +303,33 @@ class ENV(tk.Tk, object):
             agent_center = (int(center_x), int(center_y))
 
             if center_x < 0 or center_x > self.ENV_H * UNIT or center_y < 0 or center_y > self.ENV_H * UNIT:
+                reward[i] -= 50
                 self.reset(self.agentPositionArray, self.tarPositionArray, self.obsArray, self.obsSize)
 
-            grid_map,new_cells = self.mark_detection_area(self.grid_map,agent_center,self.observeRange,UNIT)
+            # detection of new cells
+            self.grid_map,new_cells = self.mark_detection_area(self.grid_map,agent_center,self.observeRange,UNIT)
             new_cell_reward = (new_cells*100)/(ENV_H*ENV_W)
-            self.agentReward[i] = new_cell_reward
+            self.new_cell_point[i].append(new_cell_reward)
 
-            founded_targets = self.remove_target(grid_map,self.observeRange,UNIT)
+            founded_targets_move, check = self.mark_target(self.grid_map, self.observeRange, UNIT)
+            if check == 1: # check what agent find the target
+                search_agents[i] = 1
+            # if len(founded_targets) == self.agentNum:
+            #     self.reset(self.agentPositionArray, self.tarPositionArray, self.obsArray, self.obsSize)
 
-            if len(founded_targets) == self.agentNum:
-                self.reset(self.agentPositionArray, self.tarPositionArray, self.obsArray, self.obsSize)
-
-            self.draw_grid(grid_map,UNIT)
+            self.draw_grid(self.grid_map,UNIT)
             self.canvas.tag_lower("squares")
             # self.get_agent_positions()
             self.canvas.move(self.agent_all[i], move[i, 0], move[i, 1])
 
-        nextDisAT = np.zeros(self.agentNum)
+        # nextDisAT = np.zeros(self.agentNum)
         for i in range(self.agentNum):
             agent_coordi[i] = np.array(self.canvas.coords(self.agent_all[i])[:2]) + np.array([self.agentSize, self.agentSize])
-            nextDisAT[i] = np.linalg.norm(agent_coordi[i] - tar_coordi[action[i]])
+            # nextDisAT[i] = np.linalg.norm(agent_coordi[i] - tar_coordi[action[i]])
         agentDone = [int(val) for val in np.zeros(self.agentNum)]  # agent reaches which target
         tarDone = [int(val) for val in np.zeros(self.agentNum)]    # indicates whether a target is reached
         tarChosen = [int(val) for val in np.zeros(self.agentNum)]  # indicates whether a target is selected by an agent
 
-        reward = -1 * np.ones(self.agentNum)/ENV_H
         temp = 0
         for i in range(self.agentNum):
             for j in range(self.agentNum):
@@ -335,13 +342,13 @@ class ENV(tk.Tk, object):
             for k in range(self.agentNum):
                 if k > i:
                     nextDisAA[temp] = np.linalg.norm(agent_coordi[i] - agent_coordi [k])
-                    if nextDisAA[temp] < UNIT: 
+                    if nextDisAA[temp] < UNIT:
                         done_collision_cross[i], done_collision_cross[k] = 1, 1
                         if action[i] == action[k]:
                             done[i], done[k] = 1, 1
                             done_collision_agent = 1
                     temp += 1
-            agentNewPosition[i] = agent_coordi[i] / UNIT - self.origin / UNIT  
+            agentNewPosition[i] = agent_coordi[i] / UNIT - self.origin / UNIT
 
         # Check collisions
         for i in range(self.agentNum):
@@ -370,9 +377,30 @@ class ENV(tk.Tk, object):
                 reward[i] -= 45/ENV_H  
                 break
 
-        #check new cells
-        for i in range(self.agentNum):
-            reward[i] += self.agentReward[i]
+        # Detection of target
+        # for i in range(self.agentNum):
+        #     if searcher[i] == 1:
+        #         reward[i] += 100
+
+        # Check new cells
+        # for i in range(self.agentNum):
+        #     for j in self.new_cell_point[i]:
+        #         reward[i] += j
+
+        t = 0.5*(-1*self.historyStep)
+        for i in range(self.agentNum):                                                                                  # calculator agent's reward[i]
+            if search_agents[i] == 1:
+                reward[i] += t + 100/self.agentNum + sum(self.new_cell_point[i])
+            else:
+                reward[i] += t + sum(self.new_cell_point[i])
+
+        self.historyStep +=1
+
+        # for i in range(self.agentNum):                                                                                  # check reward component
+        #     if search_agents[i] == 1:
+        #         print("reward[{}]: {} = {} + {} + {}".format(i,reward[i],t,100/self.agentNum,sum(self.new_cell_point[i])))
+        #     else:
+        #         print("reward[{}]: {} ={} + {} + {}".format(i,reward[i],t,0,sum(self.new_cell_point[i])))
 
         for i in range(self.agentNum):
             if done_collision_agent == 1:
@@ -388,18 +416,21 @@ class ENV(tk.Tk, object):
             done = np.ones(self.agentNum)
             success = 1
             # print("***********  SUCCESS  ***********")
-        conflict_num = np.zeros(self.agentNum)
-        for i in range(self.agentNum):
-            for k in range(self.agentNum):
-                if k != i and action[i] == action[k]:
-                    conflict_num[i] += 1
-        for i in range(self.agentNum):
-            reward[i] += -30 * conflict_num[i]/ENV_H
-        if np.sum(tarChosen) == self.agentNum:
-            reward += 0.8 * np.ones(self.agentNum)/ENV_H
-        for i in range(self.agentNum):
-            if agentExistObstacle_Target[i] and nextDisAT[i] < disAT[i]:
-                reward[i] += 5*(disAT[i] - nextDisAT[i]) / UNIT / ENV_H
+
+        # REWARD WITH TARGET
+        # conflict_num = np.zeros(self.agentNum)
+        # for i in range(self.agentNum):
+        #     for k in range(self.agentNum):
+        #         if k != i and action[i] == action[k]:
+        #             conflict_num[i] += 1
+        # for i in range(self.agentNum):
+        #     reward[i] += -30 * conflict_num[i]/ENV_H
+        # if np.sum(tarChosen) == self.agentNum:
+        #     reward += 0.8 * np.ones(self.agentNum)/ENV_H
+        # for i in range(self.agentNum):
+        #     if agentExistObstacle_Target[i] and nextDisAT[i] < disAT[i]:
+        #         reward[i] += 5*(disAT[i] - nextDisAT[i]) / UNIT / ENV_H
+
         # Update observation
         for i in range(self.agentNum):
             for k in range(self.agentNum):

@@ -6,6 +6,7 @@ from algo import HIST_Alg
 import os
 import argparse
 from deep_q_algo import Deep_Q_Algo
+import pandas as pd
 parser = argparse.ArgumentParser()
 parser.add_argument("--agent_num", type=int, default=0)
 parser.add_argument("--mode", type=str, default='train')
@@ -15,7 +16,7 @@ parser.add_argument("--load_path", type=str, default='./result')
 args = parser.parse_args()
 mode = args.mode
 if mode == 'train':
-    ep_num = 10000
+    ep_num = 1000
     np.random.seed(1)
 else:
     ep_num = 1000
@@ -66,6 +67,8 @@ success_num = 0
 successNum_list = []
 conflict_num = 0
 timeStart = time.time()
+ep_list = []
+reward_list = []
 
 for ep in range(ep_num):
     episode += 1
@@ -157,16 +160,17 @@ for ep in range(ep_num):
         step_total += 1
         if mode == 'train':  # Learn
 
-            if RL.pointer_ddpg > RL.MEMORY_SIZE_ddpg and sum(agentExistObstacle_Target):
-                RL.learn_ddpg()
+            # if RL.pointer_ddpg > RL.MEMORY_SIZE_ddpg and sum(agentExistObstacle_Target):
+            #     RL.learn_ddpg()
+            if len(RL_DQN.replay_buffer) > 32:  # bạn có thể điều chỉnh batch size nếu muốn
+                RL_DQN.train_main_network(batch_size=32)
 
-                # print(f'ts: {action}, angle: {np.around(action_ddpg, decimals=2)}')
+            # print(f'ts: {action}, angle: {np.around(action_ddpg, decimals=2)}')
         ep_timeCost += 1
         agentExistObstacle_Target_old = agentExistObstacle_Target
         ep_reward += reward
         otherTarCoordi = np.zeros((agentNum, 2))
 
-        print(ep_reward)
 
         # Store transitions
         for i in range(agentNum):
@@ -201,7 +205,8 @@ for ep in range(ep_num):
                         temp, agentObstacleDis[i, interval + 4] = env.detect_obstacle(tarAngleAround_PolarCoordi, i, otherTarCoordi[i])
             observation_All = np.hstack((observation_[i], observation_h_temp[i], observation_[i, -2*(agentNum-1):], agentObstacleDis[i]))
             if mode == 'train' and agentExistObstacle_Target[i] == 1:
-                RL.store_transition_ddpg(observationCA[i], action_ddpg[i], reward[i], observation_All, action_[i], done[i], agentNextDDPG)
+                RL_DQN.save_experience(observationCA[i], action_ddpg[i], reward[i], observation_All, done[i])
+                # RL.store_transition_ddpg(observationCA[i], action_ddpg[i], reward[i], observation_All, action_[i], done[i], agentNextDDPG)
         observation_h = observation_h_temp
         observation = observation_
 
@@ -213,6 +218,8 @@ for ep in range(ep_num):
             temp_rewardSum += min(ep_reward)
             if mode == 'train':
                 print(f'Ep: {episode}, R: {np.around(min(ep_reward), decimals=3)}')
+                ep_list.append(episode)
+                reward_list.append(min(ep_reward))
             if success == 0:
                 ep_timeCost = MAX_EP_STEPS
             timeCostSum_temp += ep_timeCost
@@ -240,4 +247,9 @@ for ep in range(ep_num):
 if mode == 'train':
     RL.save_Parameters()
     np.savetxt(path+'meanReward.txt', meanReward_list)
+reward_df = pd.DataFrame({
+    'Episode': ep_list,
+    'Reward': reward_list
+})
+reward_df.to_csv(os.path.join(path, 'reward_log.csv'), index=False)
 print(f"Finished! Running time: {time.time() - timeStart}")
